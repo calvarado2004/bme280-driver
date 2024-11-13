@@ -284,6 +284,7 @@ static int init_driver(void)
   if (IS_ERR(dev_class))
   {
     pr_err("bme280: failed to create class\n");
+    dev_class = NULL;
     goto ClassError;
   }
 
