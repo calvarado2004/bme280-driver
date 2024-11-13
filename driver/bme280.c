@@ -280,7 +280,7 @@ static int init_driver(void)
   }
 
   // Create class
-  dev_class = class_create(THIS_MODULE, DEV_CLASS);
+  dev_class = class_create(DEV_CLASS);
   if (IS_ERR(dev_class))
   {
     pr_err("bme280: failed to create class\n");
