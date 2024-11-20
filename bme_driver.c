@@ -55,11 +55,10 @@ static struct bme280_calib_data calib_data;
 static int t_fine;
 
 static int bme280_read_calibration_data(void) {
-    int ret;
     unsigned char calib[BME280_CALIB_END - BME280_CALIB_START + 1];
     unsigned char calib_hum[BME280_CALIB_HUM_END - BME280_CALIB_HUM_START + 1];
 
-    ret = i2c_smbus_read_i2c_block_data(bme280_client, BME280_CALIB_START, sizeof(calib), calib);
+    int ret = i2c_smbus_read_i2c_block_data(bme280_client, BME280_CALIB_START, sizeof(calib), calib);
     if (ret < 0) return ret;
 
     calib_data.dig_T1 = (calib[1] << 8) | calib[0];
@@ -89,9 +88,9 @@ static int bme280_read_calibration_data(void) {
 }
 
 static int bme280_read_raw_data(int reg_msb, int reg_lsb, int reg_xlsb) {
-    int msb = i2c_smbus_read_byte_data(bme280_client, reg_msb);
-    int lsb = i2c_smbus_read_byte_data(bme280_client, reg_lsb);
-    int xlsb = i2c_smbus_read_byte_data(bme280_client, reg_xlsb);
+    const int msb = i2c_smbus_read_byte_data(bme280_client, reg_msb);
+    const int lsb = i2c_smbus_read_byte_data(bme280_client, reg_lsb);
+    const int xlsb = i2c_smbus_read_byte_data(bme280_client, reg_xlsb);
 
     if (msb < 0 || lsb < 0 || xlsb < 0) return -1;
 
@@ -99,21 +98,19 @@ static int bme280_read_raw_data(int reg_msb, int reg_lsb, int reg_xlsb) {
 }
 
 static int bme280_compensate_temperature(int adc_T) {
-    int var1, var2, T;
-    var1 = ((((adc_T >> 3) - ((int)calib_data.dig_T1 << 1))) * ((int)calib_data.dig_T2)) >> 11;
-    var2 = (((((adc_T >> 4) - ((int)calib_data.dig_T1)) * ((adc_T >> 4) - ((int)calib_data.dig_T1))) >> 12) *
+    const int var1 = ((((adc_T >> 3) - ((int)calib_data.dig_T1 << 1))) * ((int)calib_data.dig_T2)) >> 11;
+    const int var2 = (((((adc_T >> 4) - ((int)calib_data.dig_T1)) * ((adc_T >> 4) - ((int)calib_data.dig_T1))) >> 12) *
             ((int)calib_data.dig_T3)) >>
-           14;
+        14;
 
     t_fine = var1 + var2;
-    T = (t_fine * 5 + 128) >> 8;
+    int T = (t_fine * 5 + 128) >> 8;
     return T;
 }
 
 static int bme280_compensate_pressure(int adc_P) {
-    long long var1, var2, p;
-    var1 = ((long long)t_fine) - 128000;
-    var2 = var1 * var1 * (long long)calib_data.dig_P6;
+    long long var1 = ((long long)t_fine) - 128000;
+    long long var2 = var1 * var1 * (long long)calib_data.dig_P6;
     var2 = var2 + ((var1 * (long long)calib_data.dig_P5) << 17);
     var2 = var2 + (((long long)calib_data.dig_P4) << 35);
     var1 = ((var1 * var1 * (long long)calib_data.dig_P3) >> 8) + ((var1 * (long long)calib_data.dig_P2) << 12);
@@ -123,7 +120,7 @@ static int bme280_compensate_pressure(int adc_P) {
         return 0;  // Avoid division by zero
     }
 
-    p = 1048576 - adc_P;
+    long long p = 1048576 - adc_P;
     p = (((p << 31) - var2) * 3125) / var1;
     var1 = (((long long)calib_data.dig_P9) * (p >> 13) * (p >> 13)) >> 25;
     var2 = (((long long)calib_data.dig_P8) * p) >> 19;
@@ -132,10 +129,9 @@ static int bme280_compensate_pressure(int adc_P) {
 }
 
 static int bme280_compensate_humidity(int adc_H) {
-    int v_x1_u32r;
 
     // Temperature fine resolution adjustment
-    v_x1_u32r = t_fine - ((int)76800);
+    int v_x1_u32r = t_fine - ((int)76800);
 
     // Intermediate calculations for humidity compensation
     v_x1_u32r = (((((adc_H << 14) - (((int)calib_data.dig_H4) << 20) -
@@ -160,8 +156,8 @@ static int bme280_compensate_humidity(int adc_H) {
     v_x1_u32r = (v_x1_u32r < 0 ? 0 : v_x1_u32r);
     v_x1_u32r = (v_x1_u32r > 419430400 ? 419430400 : v_x1_u32r);
 
-    // Return percentage (10.24 scale)
-    return (v_x1_u32r >> 12) / 1024;
+    // Return raw compensated value (scaled by 1024)
+    return (v_x1_u32r >> 12);
 }
 
 static long bme280_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
