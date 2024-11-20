@@ -84,6 +84,11 @@ static int bme280_read_calibration_data(void) {
     calib_data.dig_H5 = (calib_hum[5] << 4) | (calib_hum[4] >> 4);
     calib_data.dig_H6 = calib_hum[6];
 
+    printk(KERN_INFO "Humidity Calibration: H1=%d, H2=%d, H3=%d, H4=%d, H5=%d, H6=%d\n",
+       calib_data.dig_H1, calib_data.dig_H2, calib_data.dig_H3,
+       calib_data.dig_H4, calib_data.dig_H5, calib_data.dig_H6);
+
+
     return 0;
 }
 
@@ -133,6 +138,8 @@ static int bme280_compensate_humidity(int adc_H) {
     // Temperature fine resolution adjustment
     int v_x1_u32r = t_fine - ((int)76800);
 
+    printk(KERN_INFO "Raw Humidity: adc_H=%d\n", adc_H);
+
     // Intermediate calculations for humidity compensation
     v_x1_u32r = (((((adc_H << 14) - (((int)calib_data.dig_H4) << 20) -
                     (((int)calib_data.dig_H5) * v_x1_u32r)) +
@@ -176,7 +183,7 @@ static long bme280_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
                 pr_err("Failed to read raw humidity data\n");
                 return -EFAULT;
             }
-            //pr_info("Raw humidity data: %d\n", raw_data);  // Debug print
+            pr_info("Raw humidity data: %d\n", raw_data);  // Debug print
             value = bme280_compensate_humidity(raw_data);
             break;
         case IOCTL_GET_PRESSURE:
@@ -264,6 +271,6 @@ static struct i2c_driver bme280_driver = {
 
 module_i2c_driver(bme280_driver);
 
-MODULE_LICENSE("GPL");
+MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("Carlos Alvarado Martinez");
 MODULE_DESCRIPTION("Enhanced BME280 driver with ioctl support for temperature, humidity, and pressure");
