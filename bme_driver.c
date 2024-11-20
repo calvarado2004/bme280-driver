@@ -84,6 +84,13 @@ static int bme280_read_calibration_data(void) {
     calib_data.dig_H5 = (calib_hum[5] << 4) | (calib_hum[4] >> 4);
     calib_data.dig_H6 = calib_hum[6];
 
+    printk(KERN_INFO "Pressure Calibration: P1=%u, P2=%d, P3=%d, P4=%d, P5=%d, P6=%d, P7=%d, P8=%d, P9=%d\n",
+       calib_data.dig_P1, calib_data.dig_P2, calib_data.dig_P3, calib_data.dig_P4,
+       calib_data.dig_P5, calib_data.dig_P6, calib_data.dig_P7, calib_data.dig_P8, calib_data.dig_P9);
+
+    printk(KERN_INFO "Temperature Calibration: T1=%u, T2=%d, T3=%d\n",
+       calib_data.dig_T1, calib_data.dig_T2, calib_data.dig_T3);
+
     printk(KERN_INFO "Humidity Calibration: H1=%d, H2=%d, H3=%d, H4=%d, H5=%d, H6=%d\n",
        calib_data.dig_H1, calib_data.dig_H2, calib_data.dig_H3,
        calib_data.dig_H4, calib_data.dig_H5, calib_data.dig_H6);
@@ -138,7 +145,7 @@ static int bme280_compensate_humidity(int adc_H) {
     // Temperature fine resolution adjustment
     int v_x1_u32r = t_fine - ((int)76800);
 
-    printk(KERN_INFO "Raw Humidity: adc_H=%d\n", adc_H);
+    //printk(KERN_INFO "Raw Humidity: adc_H=%d\n", adc_H);
 
     // Intermediate calculations for humidity compensation
     v_x1_u32r = (((((adc_H << 14) - (((int)calib_data.dig_H4) << 20) -
@@ -183,7 +190,7 @@ static long bme280_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
                 pr_err("Failed to read raw humidity data\n");
                 return -EFAULT;
             }
-            pr_info("Raw humidity data: %d\n", raw_data);  // Debug print
+            //pr_info("Raw humidity data: %d\n", raw_data);  // Debug print
             value = bme280_compensate_humidity(raw_data);
             break;
         case IOCTL_GET_PRESSURE:
