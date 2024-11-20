@@ -121,6 +121,7 @@ static int bme280_compensate_temperature(int adc_T) {
 }
 
 static int bme280_compensate_pressure(int adc_P) {
+    // Intermediate calculations
     long long var1 = ((long long)t_fine) - 128000;
     long long var2 = var1 * var1 * (long long)calib_data.dig_P6;
     var2 = var2 + ((var1 * (long long)calib_data.dig_P5) << 17);
@@ -128,50 +129,44 @@ static int bme280_compensate_pressure(int adc_P) {
     var1 = ((var1 * var1 * (long long)calib_data.dig_P3) >> 8) + ((var1 * (long long)calib_data.dig_P2) << 12);
     var1 = (((((long long)1) << 47) + var1)) * ((long long)calib_data.dig_P1) >> 33;
 
+    // Avoid division by zero
     if (var1 == 0) {
-        return 0;  // Avoid division by zero
+        printk(KERN_ERR "Division by zero in pressure compensation\n");
+        return 0;
     }
 
+    // Final pressure calculation
     long long p = 1048576 - adc_P;
     p = (((p << 31) - var2) * 3125) / var1;
     var1 = (((long long)calib_data.dig_P9) * (p >> 13) * (p >> 13)) >> 25;
     var2 = (((long long)calib_data.dig_P8) * p) >> 19;
     p = ((p + var1 + var2) >> 8) + (((long long)calib_data.dig_P7) << 4);
+
+    // Return pressure in Pascals
     return (int)p / 256;
 }
 
 static int bme280_compensate_humidity(int adc_H) {
-
-    // Temperature fine resolution adjustment
-    int v_x1_u32r = t_fine - ((int)76800);
-
-    //printk(KERN_INFO "Raw Humidity: adc_H=%d\n", adc_H);
-
-    // Intermediate calculations for humidity compensation
+    // Intermediate calculations
+    int v_x1_u32r = (t_fine - ((int)76800));
     v_x1_u32r = (((((adc_H << 14) - (((int)calib_data.dig_H4) << 20) -
                     (((int)calib_data.dig_H5) * v_x1_u32r)) +
-                   ((int)16384)) >>
-                  15) *
+                   ((int)16384)) >> 15) *
                  (((((((v_x1_u32r * ((int)calib_data.dig_H6)) >> 10) *
                       (((v_x1_u32r * ((int)calib_data.dig_H3)) >> 11) +
-                       ((int)32768))) >>
-                     10) +
+                       ((int)32768))) >> 10) +
                     ((int)2097152)) *
                    ((int)calib_data.dig_H2) +
-                   8192) >>
-                  14));
+                   8192) >> 14));
+    v_x1_u32r = (v_x1_u32r - (((((v_x1_u32r >> 15) * (v_x1_u32r >> 15)) >> 7) *
+                               ((int)calib_data.dig_H1)) >> 4));
 
-    // Final adjustment for humidity
-    v_x1_u32r = v_x1_u32r - (((((v_x1_u32r >> 15) * (v_x1_u32r >> 15)) >> 7) *
-                              ((int)calib_data.dig_H1)) >>
-                             4);
-
-    // Constrain to valid range
+    // Constrain to valid range [0, 419430400]
     v_x1_u32r = (v_x1_u32r < 0 ? 0 : v_x1_u32r);
     v_x1_u32r = (v_x1_u32r > 419430400 ? 419430400 : v_x1_u32r);
 
-    // Return raw compensated value (scaled by 1024)
-    return (v_x1_u32r >> 12);
+    // Return scaled humidity
+    return (v_x1_u32r >> 12);  // Scaled by 1024
 }
 
 static long bme280_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
