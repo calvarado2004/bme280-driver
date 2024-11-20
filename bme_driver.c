@@ -133,16 +133,34 @@ static int bme280_compensate_pressure(int adc_P) {
 
 static int bme280_compensate_humidity(int adc_H) {
     int v_x1_u32r;
-    v_x1_u32r = (t_fine - ((int)76800));
-    v_x1_u32r = (((((adc_H << 14) - (((int)calib_data.dig_H4) << 20) - (((int)calib_data.dig_H5) * v_x1_u32r)) + ((int)16384)) >> 15) *
-                 (((((((v_x1_u32r * ((int)calib_data.dig_H6)) >> 10) * (((v_x1_u32r * ((int)calib_data.dig_H3)) >> 11) + ((int)32768))) >> 10) +
+
+    // Temperature fine resolution adjustment
+    v_x1_u32r = t_fine - ((int)76800);
+
+    // Intermediate calculations for humidity compensation
+    v_x1_u32r = (((((adc_H << 14) - (((int)calib_data.dig_H4) << 20) -
+                    (((int)calib_data.dig_H5) * v_x1_u32r)) +
+                   ((int)16384)) >>
+                  15) *
+                 (((((((v_x1_u32r * ((int)calib_data.dig_H6)) >> 10) *
+                      (((v_x1_u32r * ((int)calib_data.dig_H3)) >> 11) +
+                       ((int)32768))) >>
+                     10) +
                     ((int)2097152)) *
                    ((int)calib_data.dig_H2) +
                    8192) >>
                   14));
-    v_x1_u32r = (v_x1_u32r - (((((v_x1_u32r >> 15) * (v_x1_u32r >> 15)) >> 7) * ((int)calib_data.dig_H1)) >> 4));
+
+    // Final adjustment for humidity
+    v_x1_u32r = v_x1_u32r - (((((v_x1_u32r >> 15) * (v_x1_u32r >> 15)) >> 7) *
+                              ((int)calib_data.dig_H1)) >>
+                             4);
+
+    // Constrain to valid range
     v_x1_u32r = (v_x1_u32r < 0 ? 0 : v_x1_u32r);
     v_x1_u32r = (v_x1_u32r > 419430400 ? 419430400 : v_x1_u32r);
+
+    // Return percentage (10.24 scale)
     return (v_x1_u32r >> 12) / 1024;
 }
 
