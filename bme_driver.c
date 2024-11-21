@@ -8,11 +8,6 @@
 
 #define DEVICE_NAME "bme280"
 #define CLASS_NAME "bme280_class"
-
-typedef long int BME280_S32_t;         // 32-bit signed integer
-typedef unsigned long int BME280_U32_t; // 32-bit unsigned integer
-typedef long long int BME280_S64_t;    // 64-bit signed integer
-
 #define IOCTL_GET_TEMPERATURE _IOR('B', 1, int)
 #define IOCTL_GET_HUMIDITY _IOR('B', 2, int)
 #define IOCTL_GET_PRESSURE _IOR('B', 3, int)
@@ -31,6 +26,7 @@ typedef long long int BME280_S64_t;    // 64-bit signed integer
 #define BME280_CALIB_HUM_START 0xE1
 #define BME280_CALIB_HUM_END 0xE7
 
+// Structure to hold calibration data
 struct bme280_calib_data {
     unsigned short dig_T1;
     signed short dig_T2;
@@ -89,25 +85,13 @@ static int bme280_read_calibration_data(void) {
     calib_data.dig_H5 = (calib_hum[5] << 4) | (calib_hum[4] >> 4);
     calib_data.dig_H6 = calib_hum[6];
 
-    printk(KERN_INFO "Pressure Calibration: P1=%u, P2=%d, P3=%d, P4=%d, P5=%d, P6=%d, P7=%d, P8=%d, P9=%d\n",
-       calib_data.dig_P1, calib_data.dig_P2, calib_data.dig_P3, calib_data.dig_P4,
-       calib_data.dig_P5, calib_data.dig_P6, calib_data.dig_P7, calib_data.dig_P8, calib_data.dig_P9);
-
-    printk(KERN_INFO "Temperature Calibration: T1=%u, T2=%d, T3=%d\n",
-       calib_data.dig_T1, calib_data.dig_T2, calib_data.dig_T3);
-
-    printk(KERN_INFO "Humidity Calibration: H1=%d, H2=%d, H3=%d, H4=%d, H5=%d, H6=%d\n",
-       calib_data.dig_H1, calib_data.dig_H2, calib_data.dig_H3,
-       calib_data.dig_H4, calib_data.dig_H5, calib_data.dig_H6);
-
-
     return 0;
 }
 
 static int bme280_read_raw_data(int reg_msb, int reg_lsb, int reg_xlsb) {
-    const int msb = i2c_smbus_read_byte_data(bme280_client, reg_msb);
-    const int lsb = i2c_smbus_read_byte_data(bme280_client, reg_lsb);
-    const int xlsb = i2c_smbus_read_byte_data(bme280_client, reg_xlsb);
+    int msb = i2c_smbus_read_byte_data(bme280_client, reg_msb);
+    int lsb = i2c_smbus_read_byte_data(bme280_client, reg_lsb);
+    int xlsb = i2c_smbus_read_byte_data(bme280_client, reg_xlsb);
 
     if (msb < 0 || lsb < 0 || xlsb < 0) return -1;
 
@@ -115,8 +99,8 @@ static int bme280_read_raw_data(int reg_msb, int reg_lsb, int reg_xlsb) {
 }
 
 static int bme280_compensate_temperature(int adc_T) {
-    const int var1 = ((((adc_T >> 3) - ((int)calib_data.dig_T1 << 1))) * ((int)calib_data.dig_T2)) >> 11;
-    const int var2 = (((((adc_T >> 4) - ((int)calib_data.dig_T1)) * ((adc_T >> 4) - ((int)calib_data.dig_T1))) >> 12) *
+    int var1 = ((((adc_T >> 3) - ((int)calib_data.dig_T1 << 1))) * ((int)calib_data.dig_T2)) >> 11;
+    int var2 = (((((adc_T >> 4) - ((int)calib_data.dig_T1)) * ((adc_T >> 4) - ((int)calib_data.dig_T1))) >> 12) *
             ((int)calib_data.dig_T3)) >>
         14;
 
@@ -125,48 +109,38 @@ static int bme280_compensate_temperature(int adc_T) {
     return T;
 }
 
-BME280_U32_t bme280_compensate_pressure(BME280_S32_t adc_P) {
-    BME280_S64_t var1, var2, p;
-
-    var1 = ((BME280_S64_t)t_fine) - 128000;
-    var2 = var1 * var1 * (BME280_S64_t)calib_data.dig_P6;
-    var2 = var2 + ((var1 * (BME280_S64_t)calib_data.dig_P5) << 17);
-    var2 = var2 + (((BME280_S64_t)calib_data.dig_P4) << 35);
-    var1 = ((var1 * var1 * (BME280_S64_t)calib_data.dig_P3) >> 8) +
-           ((var1 * (BME280_S64_t)calib_data.dig_P2) << 12);
-    var1 = (((((BME280_S64_t)1) << 47) + var1) * (BME280_S64_t)calib_data.dig_P1) >> 33;
+static int bme280_compensate_pressure(int adc_P) {
+    long long var1 = ((long long)t_fine) - 128000;
+    long long var2 = var1 * var1 * (long long)calib_data.dig_P6;
+    var2 = var2 + ((var1 * (long long)calib_data.dig_P5) << 17);
+    var2 = var2 + (((long long)calib_data.dig_P4) << 35);
+    var1 = ((var1 * var1 * (long long)calib_data.dig_P3) >> 8) + ((var1 * (long long)calib_data.dig_P2) << 12);
+    var1 = (((((long long)1) << 47) + var1)) * ((long long)calib_data.dig_P1) >> 33;
 
     if (var1 == 0) {
-        return 0; // Avoid division by zero
+        return 0;  // Avoid division by zero
     }
 
-    p = 1048576 - adc_P;
+    long long p = 1048576 - adc_P;
     p = (((p << 31) - var2) * 3125) / var1;
-    var1 = (((BME280_S64_t)calib_data.dig_P9) * (p >> 13) * (p >> 13)) >> 25;
-    var2 = (((BME280_S64_t)calib_data.dig_P8) * p) >> 19;
-    p = ((p + var1 + var2) >> 8) + (((BME280_S64_t)calib_data.dig_P7) << 4);
-
-    return (BME280_U32_t)p; // Pressure in Q24.8 format
+    var1 = (((long long)calib_data.dig_P9) * (p >> 13) * (p >> 13)) >> 25;
+    var2 = (((long long)calib_data.dig_P8) * p) >> 19;
+    p = ((p + var1 + var2) >> 8) + (((long long)calib_data.dig_P7) << 4);
+    return (int)p / 256;
 }
 
-
-BME280_U32_t bme280_compensate_humidity(BME280_S32_t adc_H) {
-    BME280_S32_t v_x1_u32r = t_fine - ((BME280_S32_t)76800);
-    v_x1_u32r = (((((adc_H << 14) - (((BME280_S32_t)calib_data.dig_H4) << 20) -
-                    (((BME280_S32_t)calib_data.dig_H5) * v_x1_u32r)) + ((BME280_S32_t)16384)) >> 15) *
-                 (((((((v_x1_u32r * ((BME280_S32_t)calib_data.dig_H6)) >> 10) *
-                      (((v_x1_u32r * ((BME280_S32_t)calib_data.dig_H3)) >> 11) +
-                       ((BME280_S32_t)32768))) >> 10) +
-                    ((BME280_S32_t)2097152)) *
-                   ((BME280_S32_t)calib_data.dig_H2) +
-                   ((BME280_S32_t)8192)) >>
+static int bme280_compensate_humidity(int adc_H) {
+    int v_x1_u32r = (t_fine - ((int)76800));
+    v_x1_u32r = (((((adc_H << 14) - (((int)calib_data.dig_H4) << 20) - (((int)calib_data.dig_H5) * v_x1_u32r)) + ((int)16384)) >> 15) *
+                 (((((((v_x1_u32r * ((int)calib_data.dig_H6)) >> 10) * (((v_x1_u32r * ((int)calib_data.dig_H3)) >> 11) + ((int)32768))) >> 10) +
+                    ((int)2097152)) *
+                   ((int)calib_data.dig_H2) +
+                   8192) >>
                   14));
-    v_x1_u32r -= (((((v_x1_u32r >> 15) * (v_x1_u32r >> 15)) >> 7) * ((BME280_S32_t)calib_data.dig_H1)) >> 4);
-
+    v_x1_u32r = (v_x1_u32r - (((((v_x1_u32r >> 15) * (v_x1_u32r >> 15)) >> 7) * ((int)calib_data.dig_H1)) >> 4));
     v_x1_u32r = (v_x1_u32r < 0 ? 0 : v_x1_u32r);
     v_x1_u32r = (v_x1_u32r > 419430400 ? 419430400 : v_x1_u32r);
-
-    return (BME280_U32_t)(v_x1_u32r >> 12); // Humidity in Q22.10 format
+    return (v_x1_u32r >> 12);
 }
 
 static long bme280_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
@@ -181,11 +155,7 @@ static long bme280_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
             break;
         case IOCTL_GET_HUMIDITY:
             raw_data = i2c_smbus_read_word_data(bme280_client, BME280_REG_HUM_MSB);
-            if (raw_data < 0) {
-                pr_err("Failed to read raw humidity data\n");
-                return -EFAULT;
-            }
-            //pr_info("Raw humidity data: %d\n", raw_data);  // Debug print
+            if (raw_data < 0) return -EFAULT;
             value = bme280_compensate_humidity(raw_data);
             break;
         case IOCTL_GET_PRESSURE:
@@ -208,7 +178,7 @@ static struct file_operations fops = {
     .unlocked_ioctl = bme280_ioctl,
 };
 
-static int bme280_probe(struct i2c_client *client) {
+static int bme280_probe(struct i2c_client *client, const struct i2c_device_id *id) {
     bme280_client = client;
     if (bme280_read_calibration_data() < 0) {
         pr_err("Failed to read calibration data\n");
@@ -216,13 +186,11 @@ static int bme280_probe(struct i2c_client *client) {
     }
 
     if (alloc_chrdev_region(&dev_num, 0, 1, DEVICE_NAME) < 0) {
-        pr_err("Failed to allocate character device region\n");
         return -1;
     }
     cdev_init(&bme280_cdev, &fops);
     if (cdev_add(&bme280_cdev, dev_num, 1) == -1) {
         unregister_chrdev_region(dev_num, 1);
-        pr_err("Failed to add cdev\n");
         return -1;
     }
 
@@ -230,28 +198,21 @@ static int bme280_probe(struct i2c_client *client) {
     if (IS_ERR(bme280_class)) {
         cdev_del(&bme280_cdev);
         unregister_chrdev_region(dev_num, 1);
-        pr_err("Failed to create class\n");
         return PTR_ERR(bme280_class);
     }
-
-    if (IS_ERR(device_create(bme280_class, NULL, dev_num, NULL, DEVICE_NAME))) {
-        class_destroy(bme280_class);
-        cdev_del(&bme280_cdev);
-        unregister_chrdev_region(dev_num, 1);
-        pr_err("Failed to create device\n");
-        return PTR_ERR(bme280_class);
-    }
+    device_create(bme280_class, NULL, dev_num, NULL, DEVICE_NAME);
 
     pr_info("BME280 driver initialized\n");
     return 0;
 }
 
-static void bme280_remove(struct i2c_client *client) {
+static int bme280_remove(struct i2c_client *client) {
     device_destroy(bme280_class, dev_num);
     class_destroy(bme280_class);
     cdev_del(&bme280_cdev);
     unregister_chrdev_region(dev_num, 1);
     pr_info("BME280 driver removed\n");
+    return 0;
 }
 
 static const struct i2c_device_id bme280_id[] = {
