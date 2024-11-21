@@ -151,26 +151,26 @@ static int bme280_compensate_pressure(int adc_P) {
     return (int)(p / 256);
 }
 
-static double bme280_compensate_humidity(int adc_H) {
-    double humidity;
-    double humidity_min = 0.0;
-    double humidity_max = 100.0;
-    double var1, var2, var3, var4, var5, var6;
+static int bme280_compensate_humidity(int adc_H) {
+    int v_x1_u32r;
+    int humidity;
 
-    var1 = ((double)t_fine) - 76800.0;
-    var2 = (((double)calib_data.dig_H4) * 64.0 + (((double)calib_data.dig_H5) / 16384.0) * var1);
-    var3 = (double)adc_H - var2;
-    var4 = ((double)calib_data.dig_H2) / 65536.0;
-    var5 = (1.0 + (((double)calib_data.dig_H3) / 67108864.0) * var1);
-    var6 = 1.0 + (((double)calib_data.dig_H6) / 67108864.0) * var1 * var5;
-    var6 = var3 * var4 * (var5 * var6);
-    humidity = var6 * (1.0 - ((double)calib_data.dig_H1) * var6 / 524288.0);
+    v_x1_u32r = t_fine - 76800;
+    v_x1_u32r = (((((adc_H << 14) - ((calib_data.dig_H4 << 20) -
+                    (calib_data.dig_H5 * v_x1_u32r))) + 16384) >> 15) *
+                    ((((((v_x1_u32r * calib_data.dig_H6) >> 10) *
+                        (((v_x1_u32r * calib_data.dig_H3) >> 11) + 32768)) >> 10) +
+                        2097152) * calib_data.dig_H2 + 8192) >> 14);
+    v_x1_u32r = (v_x1_u32r - (((((v_x1_u32r >> 15) * (v_x1_u32r >> 15)) >> 7) * calib_data.dig_H1) >> 4));
+    v_x1_u32r = (v_x1_u32r < 0 ? 0 : v_x1_u32r);
+    v_x1_u32r = (v_x1_u32r > 419430400 ? 419430400 : v_x1_u32r);
+    humidity = v_x1_u32r >> 12;
 
-    // Clamp humidity to valid range [0.0, 100.0]
-    if (humidity > humidity_max)
-        humidity = humidity_max;
-    else if (humidity < humidity_min)
-        humidity = humidity_min;
+    // Clamp humidity to valid range [0, 100%]
+    if (humidity > 100000)
+        humidity = 100000;
+    else if (humidity < 0)
+        humidity = 0;
 
     return humidity;
 }
@@ -193,8 +193,7 @@ static long bme280_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
                 pr_err("Failed to read raw humidity data\n");
                 return -EFAULT;
             }
-            humidity_value = bme280_compensate_humidity(raw_data);
-            int_humidity = (int)(humidity_value * 100); // Scale to integer format (e.g., 35.12% -> 3512)
+            int_humidity = bme280_compensate_humidity(raw_data);
             if (copy_to_user((int __user *)arg, &int_humidity, sizeof(int))) {
                 pr_err("Failed to copy data to user space\n");
                 return -EFAULT;
