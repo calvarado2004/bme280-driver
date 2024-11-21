@@ -22,19 +22,19 @@
 #define BME280_REG_HUM_MSB 0xFD
 #define BME280_REG_HUM_LSB 0xFE
 #define BME280_CALIB_START 0x88
-#define BME280_CALIB_END 0xA1
 #define BME280_HUMIDITY_CALIB_DATA_ADDR 0xE1
-#define BME280_HUMIDITY_CALIB_DATA_LEN 7
+#define BME280_CTRL_HUM 0xF2
+#define BME280_CTRL_MEAS 0xF4
 
-// Calibration data length
-#define BME280_TEMP_PRESS_CALIB_DATA_LEN 26
-
-// Macro to combine bytes
 #define BME280_CONCAT_BYTES(msb, lsb) (((uint16_t)(msb) << 8) | (uint16_t)(lsb))
 
-static s32 t_fine = 22381;
+static struct i2c_client *bme280_client;
+static struct class *bme280_class;
+static dev_t dev_num;
+static struct cdev bme280_cdev;
+static int32_t t_fine;
 
-// Structure to hold calibration data
+// Calibration data structure
 struct bme280_calib_data {
     uint16_t dig_T1;
     int16_t dig_T2;
@@ -48,25 +48,19 @@ struct bme280_calib_data {
     int16_t dig_P7;
     int16_t dig_P8;
     int16_t dig_P9;
-    int64_t dig_H1;
-    int64_t dig_H2;
-    int64_t dig_H3;
-    int64_t dig_H4;
-    int64_t dig_H5;
-    int64_t dig_H6;
+    uint8_t dig_H1;
+    int16_t dig_H2;
+    uint8_t dig_H3;
+    int16_t dig_H4;
+    int16_t dig_H5;
+    int8_t dig_H6;
 };
 
-static struct i2c_client *bme280_client;
-static struct class *bme280_class;
-static dev_t dev_num;
-static struct cdev bme280_cdev;
 static struct bme280_calib_data calib_data;
-static int t_fine;
 
 // Function to read calibration data
 static int bme280_read_calibration_data(void) {
-    uint8_t calib[BME280_TEMP_PRESS_CALIB_DATA_LEN];
-    uint8_t calib_hum[BME280_HUMIDITY_CALIB_DATA_LEN];
+    uint8_t calib[26], calib_hum[7];
     int ret;
 
     // Read temperature and pressure calibration data
@@ -103,36 +97,29 @@ static int bme280_read_calibration_data(void) {
     calib_data.dig_H5 = (int16_t)((calib_hum[5] << 4) | (calib_hum[4] >> 4));
     calib_data.dig_H6 = (int8_t)calib_hum[6];
 
-    //print temperature, humidity and pressure calibration data, one line per data type
-    pr_info("Temperature calibration data: " \
-            "dig_T1=%d, dig_T2=%d, dig_T3=%d\n", \
-            calib_data.dig_T1, calib_data.dig_T2, calib_data.dig_T3);
-
-    pr_info("Humidity calibration data: " \
-            "dig_H1=%d, dig_H2=%d, dig_H3=%d, dig_H4=%d, dig_H5=%d, dig_H6=%d\n", \
+    pr_info("Temperature calibration data: dig_T1=%d, dig_T2=%d, dig_T3=%d\n", calib_data.dig_T1, calib_data.dig_T2, calib_data.dig_T3);
+    pr_info("Pressure calibration data: dig_P1=%d, dig_P2=%d, dig_P3=%d, dig_P4=%d, dig_P5=%d, dig_P6=%d, dig_P7=%d, dig_P8=%d, dig_P9=%d\n",
+            calib_data.dig_P1, calib_data.dig_P2, calib_data.dig_P3, calib_data.dig_P4, calib_data.dig_P5, calib_data.dig_P6, calib_data.dig_P7, calib_data.dig_P8, calib_data.dig_P9);
+    pr_info("Humidity calibration data: dig_H1=%d, dig_H2=%d, dig_H3=%d, dig_H4=%d, dig_H5=%d, dig_H6=%d\n",
             calib_data.dig_H1, calib_data.dig_H2, calib_data.dig_H3, calib_data.dig_H4, calib_data.dig_H5, calib_data.dig_H6);
 
-    pr_info("Pressure calibration data: " \
-            "dig_P1=%d, dig_P2=%d, dig_P3=%d, dig_P4=%d, dig_P5=%d, dig_P6=%d, dig_P7=%d, dig_P8=%d, dig_P9=%d\n", \
-            calib_data.dig_P1, calib_data.dig_P2, calib_data.dig_P3, calib_data.dig_P4, calib_data.dig_P5, calib_data.dig_P6, calib_data.dig_P7, calib_data.dig_P8, calib_data.dig_P9);
-
-    pr_info("Calibration data read successfully\n");
-
+    pr_info("Calibration data successfully loaded.\n");
     return 0;
 }
 
-
+// Function to read raw sensor data
 static int bme280_read_raw_data(int reg_msb, int reg_lsb, int reg_xlsb) {
     int msb = i2c_smbus_read_byte_data(bme280_client, reg_msb);
     int lsb = i2c_smbus_read_byte_data(bme280_client, reg_lsb);
-    int xlsb = i2c_smbus_read_byte_data(bme280_client, reg_xlsb);
+    int xlsb = (reg_xlsb != 0) ? i2c_smbus_read_byte_data(bme280_client, reg_xlsb) : 0;
 
-    if (msb < 0 || lsb < 0 || xlsb < 0) return -1;
+    if (msb < 0 || lsb < 0 || (xlsb < 0 && reg_xlsb != 0))
+        return -1;
 
     return (msb << 12) | (lsb << 4) | (xlsb >> 4);
 }
 
-// Compensation functions
+// Temperature compensation
 static int bme280_compensate_temperature(int adc_T) {
     int var1 = (((adc_T >> 3) - ((int)calib_data.dig_T1 << 1)) * (int)calib_data.dig_T2) >> 11;
     int var2 = (((((adc_T >> 4) - (int)calib_data.dig_T1) *
@@ -146,6 +133,7 @@ static int bme280_compensate_temperature(int adc_T) {
     return T; // Return temperature in 0.01°C
 }
 
+// Pressure compensation
 static int bme280_compensate_pressure(int adc_P) {
     int64_t var1 = ((int64_t)t_fine) - 128000;
     int64_t var2 = var1 * var1 * (int64_t)calib_data.dig_P6;
@@ -163,97 +151,86 @@ static int bme280_compensate_pressure(int adc_P) {
     var1 = (((int64_t)calib_data.dig_P9) * (p >> 13) * (p >> 13)) >> 25;
     var2 = (((int64_t)calib_data.dig_P8) * p) >> 19;
     p = ((p + var1 + var2) >> 8) + (((int64_t)calib_data.dig_P7) << 4);
-
     return (int)(p / 256);
 }
 
-// Constants for calculations
-const int64_t HUM_VAR1_OFFSET = 76800;
-const int64_t HUM_CALIB_SCALE = 1048576;
-const int64_t HUM_VAR3_SCALE = 4096;
-const int64_t HUM_VAR4_SCALE = 8192;
-const int64_t HUM_FINAL_SCALE = 10000;
+// Humidity compensation
+static uint32_t bme280_compensate_humidity(int32_t adc_H) {
+    int32_t v_x1_u32r;
 
-// Function to compensate humidity
-static int64_t bme280_compensate_humidity(int64_t adc_H) {
-    int64_t temp_diff = t_fine - HUM_VAR1_OFFSET;
-
-    // Adjust humidity based on calibration data
-    int64_t humidity_scaled = (adc_H * 16384)
-                        - (calib_data.dig_H4 * HUM_CALIB_SCALE)
-                        - ((calib_data.dig_H5 * temp_diff) / 1024);
-    int64_t humidity_uncomp = (humidity_scaled + 16384) / 32768;
-
-    // Apply further compensations
-    int64_t var3 = (humidity_uncomp * humidity_uncomp * calib_data.dig_H1) / HUM_VAR3_SCALE;
-    int64_t var4 = (humidity_uncomp * calib_data.dig_H2) / HUM_VAR4_SCALE;
-    int64_t compensation_result = (((var4 + 2097152) * calib_data.dig_H3) / 16384) + var3;
-
-    // Clamp the result to ensure it fits within 0–10000
-    if (compensation_result < 0)
-        compensation_result = 0;
-    else if (compensation_result > (HUM_FINAL_SCALE * 100))
-        compensation_result = HUM_FINAL_SCALE * 100;
-
-    // Scale down to return a value between 0 and 10000
-    return compensation_result / HUM_FINAL_SCALE;
+    v_x1_u32r = t_fine - 76800;
+    v_x1_u32r = (((((adc_H << 14) - (((int32_t)calib_data.dig_H4) << 20) -
+                    (((int32_t)calib_data.dig_H5) * v_x1_u32r)) +
+                   ((int32_t)16384)) >>
+                  15) *
+                 (((((((v_x1_u32r * ((int32_t)calib_data.dig_H6)) >> 10) *
+                      (((v_x1_u32r * ((int32_t)calib_data.dig_H3)) >> 11) +
+                       ((int32_t)32768))) >>
+                     10) +
+                    ((int32_t)2097152)) *
+                       ((int32_t)calib_data.dig_H2) +
+                   8192) >>
+                  14));
+    v_x1_u32r =
+        (v_x1_u32r - (((((v_x1_u32r >> 15) * (v_x1_u32r >> 15)) >> 7) *
+                       ((int32_t)calib_data.dig_H1)) >>
+                      4));
+    v_x1_u32r = (v_x1_u32r < 0 ? 0 : v_x1_u32r);
+    v_x1_u32r = (v_x1_u32r > 419430400 ? 419430400 : v_x1_u32r);
+    return (uint32_t)(v_x1_u32r >> 12);
 }
 
-
-
+// IOCTL handler
 static long bme280_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
-    int value;
-    int raw_data;
-    s64 int_humidity;
+    int raw_data, value = 0;
 
     switch (cmd) {
-        case IOCTL_GET_TEMPERATURE:
-            raw_data = bme280_read_raw_data(BME280_REG_TEMP_MSB, BME280_REG_TEMP_LSB, BME280_REG_TEMP_XLSB);
-            if (raw_data < 0) return -EFAULT;
-            value = bme280_compensate_temperature(raw_data);
-            break;
-        case IOCTL_GET_HUMIDITY:
-            raw_data = bme280_read_raw_data(BME280_REG_HUM_MSB, BME280_REG_HUM_LSB, 0);
-            if (raw_data < 0) {
-                pr_err("Failed to read raw humidity data\n");
-                return -EFAULT;
-            }
-            int_humidity = bme280_compensate_humidity(raw_data);
-            if (copy_to_user((int __user *)arg, &int_humidity, sizeof(int))) {
-                pr_err("Failed to copy humidity to user space\n");
-                return -EFAULT;
-            }
-            break;
-        case IOCTL_GET_PRESSURE:
-            raw_data = bme280_read_raw_data(BME280_REG_PRESS_MSB, BME280_REG_PRESS_LSB, BME280_REG_PRESS_XLSB);
-            if (raw_data < 0) return -EFAULT;
-            value = bme280_compensate_pressure(raw_data);
-            break;
-        default:
-            return -EINVAL;
+    case IOCTL_GET_TEMPERATURE:
+        raw_data = bme280_read_raw_data(BME280_REG_TEMP_MSB, BME280_REG_TEMP_LSB, BME280_REG_TEMP_XLSB);
+        if (raw_data < 0)
+            return -EFAULT;
+        value = bme280_compensate_temperature(raw_data);
+        break;
+    case IOCTL_GET_HUMIDITY:
+        raw_data = bme280_read_raw_data(BME280_REG_HUM_MSB, BME280_REG_HUM_LSB, 0);
+        if (raw_data < 0)
+            return -EFAULT;
+        value = bme280_compensate_humidity(raw_data);
+        break;
+    case IOCTL_GET_PRESSURE:
+        raw_data = bme280_read_raw_data(BME280_REG_PRESS_MSB, BME280_REG_PRESS_LSB, BME280_REG_PRESS_XLSB);
+        if (raw_data < 0)
+            return -EFAULT;
+        value = bme280_compensate_pressure(raw_data);
+        break;
+    default:
+        return -EINVAL;
     }
 
-    if (copy_to_user((int __user *)arg, &value, sizeof(int))) {
+    if (copy_to_user((int32_t __user *)arg, &value, sizeof(value)))
         return -EFAULT;
-    }
+
     return 0;
 }
 
-static struct file_operations fops = {
+// File operations
+static const struct file_operations fops = {
     .owner = THIS_MODULE,
     .unlocked_ioctl = bme280_ioctl,
 };
 
+// Probe function
 static int bme280_probe(struct i2c_client *client) {
     bme280_client = client;
+
     if (bme280_read_calibration_data() < 0) {
         pr_err("Failed to read calibration data\n");
         return -EIO;
     }
 
-    if (alloc_chrdev_region(&dev_num, 0, 1, DEVICE_NAME) < 0) {
+    if (alloc_chrdev_region(&dev_num, 0, 1, DEVICE_NAME) < 0)
         return -1;
-    }
+
     cdev_init(&bme280_cdev, &fops);
     if (cdev_add(&bme280_cdev, dev_num, 1) == -1) {
         unregister_chrdev_region(dev_num, 1);
@@ -266,12 +243,19 @@ static int bme280_probe(struct i2c_client *client) {
         unregister_chrdev_region(dev_num, 1);
         return PTR_ERR(bme280_class);
     }
-    device_create(bme280_class, NULL, dev_num, NULL, DEVICE_NAME);
 
-    pr_info("BME280 driver initialized\n");
+    if (!device_create(bme280_class, NULL, dev_num, NULL, DEVICE_NAME)) {
+        class_destroy(bme280_class);
+        cdev_del(&bme280_cdev);
+        unregister_chrdev_region(dev_num, 1);
+        return -ENOMEM;
+    }
+
+    pr_info("BME280 driver initialized successfully\n");
     return 0;
 }
 
+// Remove function
 static void bme280_remove(struct i2c_client *client) {
     device_destroy(bme280_class, dev_num);
     class_destroy(bme280_class);
@@ -290,7 +274,6 @@ MODULE_DEVICE_TABLE(i2c, bme280_id);
 static struct i2c_driver bme280_driver = {
     .driver = {
         .name = "bme280_driver",
-        .owner = THIS_MODULE,
     },
     .probe = bme280_probe,
     .remove = bme280_remove,
@@ -301,4 +284,4 @@ module_i2c_driver(bme280_driver);
 
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("Carlos Alvarado Martinez");
-MODULE_DESCRIPTION("Enhanced BME280 driver with ioctl support for temperature, humidity, and pressure");
+MODULE_DESCRIPTION("Enhanced BME280 driver with IOCTL support for temperature, humidity, and pressure");
