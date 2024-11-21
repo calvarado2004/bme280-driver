@@ -103,7 +103,21 @@ static int bme280_read_calibration_data(void) {
     calib_data.dig_H5 = (int16_t)((calib_hum[5] << 4) | (calib_hum[4] >> 4));
     calib_data.dig_H6 = (int8_t)calib_hum[6];
 
+    //print temperature, humidity and pressure calibration data, one line per data type
+    pr_info("Temperature calibration data: " \
+            "dig_T1=%d, dig_T2=%d, dig_T3=%d\n", \
+            calib_data.dig_T1, calib_data.dig_T2, calib_data.dig_T3);
+
+    pr_info("Humidity calibration data: " \
+            "dig_H1=%d, dig_H2=%d, dig_H3=%d, dig_H4=%d, dig_H5=%d, dig_H6=%d\n", \
+            calib_data.dig_H1, calib_data.dig_H2, calib_data.dig_H3, calib_data.dig_H4, calib_data.dig_H5, calib_data.dig_H6);
+
+    pr_info("Pressure calibration data: " \
+            "dig_P1=%d, dig_P2=%d, dig_P3=%d, dig_P4=%d, dig_P5=%d, dig_P6=%d, dig_P7=%d, dig_P8=%d, dig_P9=%d\n", \
+            calib_data.dig_P1, calib_data.dig_P2, calib_data.dig_P3, calib_data.dig_P4, calib_data.dig_P5, calib_data.dig_P6, calib_data.dig_P7, calib_data.dig_P8, calib_data.dig_P9);
+
     pr_info("Calibration data read successfully\n");
+
     return 0;
 }
 
@@ -153,23 +167,36 @@ static int bme280_compensate_pressure(int adc_P) {
     return (int)(p / 256);
 }
 
+// Constants for calculations
+const s64 HUM_VAR1_OFFSET = 76800;
+const s64 HUM_CALIB_SCALE = 1048576;
+const s64 HUM_VAR3_SCALE = 4096;
+const s64 HUM_VAR4_SCALE = 8192;
+const s64 HUM_FINAL_SCALE = 16384;
+
+// Function to compensate humidity
 static s64 bme280_compensate_humidity(s64 adc_H) {
+    s64 temp_diff = t_fine - HUM_VAR1_OFFSET;
 
-    // Adjust calculations for scaling and sign
-    s64 var1 = t_fine - 76800;
-    s64 var2 = (adc_H * 16384) - (calib_data.dig_H4 * 1048576) - ((calib_data.dig_H5 * var1) / 1024);
-    var2 = (var2 + 16384) / 32768;
-    s64 var3 = (var2 * var2 * calib_data.dig_H1) / 4096;
-    s64 var4 = (var2 * calib_data.dig_H2) / 8192;
-    s64 var5 = (((var4 + 2097152) * calib_data.dig_H3) / 16384) + var3;
+    // Adjust humidity based on calibration data
+    s64 humidity_scaled = (adc_H * 16384)
+                        - (calib_data.dig_H4 * HUM_CALIB_SCALE)
+                        - ((calib_data.dig_H5 * temp_diff) / 1024);
+    s64 humidity_uncomp = (humidity_scaled + 16384) / 32768;
 
-    // Clamp the result between 0 and 419430400 (max humidity in fixed-point)
-    var5 = (var5 > 419430400) ? 419430400 : (var5 < 0 ? 0 : var5);
+    // Apply further compensations
+    s64 var3 = (humidity_uncomp * humidity_uncomp * calib_data.dig_H1) / HUM_VAR3_SCALE;
+    s64 var4 = (humidity_uncomp * calib_data.dig_H2) / HUM_VAR4_SCALE;
+    s64 compensation_result = (((var4 + 2097152) * calib_data.dig_H3) / 16384) + var3;
 
-    // Convert to percentage
-    s64 humidity = (var5 * 100) / 4096;
+    // Clamp the result between 0 and 10000 (representing 0% to 100.00%)
+    printk("Compensation result before clamp: %lld\n", compensation_result);
+    compensation_result = (compensation_result < 0) ? 0 : compensation_result;
+    compensation_result = (compensation_result > (100 * HUM_FINAL_SCALE)) ? (100 * HUM_FINAL_SCALE) : compensation_result;
+    printk("Compensation result after clamp: %lld\n", compensation_result);
 
-    return humidity;
+    // Return humidity as an integer percentage with two decimal places
+    return compensation_result / HUM_FINAL_SCALE;
 }
 
 
