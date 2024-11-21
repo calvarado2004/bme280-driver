@@ -172,7 +172,7 @@ const int64_t HUM_VAR1_OFFSET = 76800;
 const int64_t HUM_CALIB_SCALE = 1048576;
 const int64_t HUM_VAR3_SCALE = 4096;
 const int64_t HUM_VAR4_SCALE = 8192;
-const int64_t HUM_FINAL_SCALE = 100;
+const int64_t HUM_FINAL_SCALE = 10000;
 
 // Function to compensate humidity
 static int64_t bme280_compensate_humidity(int64_t adc_H) {
@@ -189,9 +189,16 @@ static int64_t bme280_compensate_humidity(int64_t adc_H) {
     int64_t var4 = (humidity_uncomp * calib_data.dig_H2) / HUM_VAR4_SCALE;
     int64_t compensation_result = (((var4 + 2097152) * calib_data.dig_H3) / 16384) + var3;
 
-    // Return humidity as an integer percentage with two decimal places
+    // Clamp the result to ensure it fits within 0–10000
+    if (compensation_result < 0)
+        compensation_result = 0;
+    else if (compensation_result > (HUM_FINAL_SCALE * 100))
+        compensation_result = HUM_FINAL_SCALE * 100;
+
+    // Scale down to return a value between 0 and 10000
     return compensation_result / HUM_FINAL_SCALE;
 }
+
 
 
 static long bme280_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
@@ -206,14 +213,14 @@ static long bme280_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
             value = bme280_compensate_temperature(raw_data);
             break;
         case IOCTL_GET_HUMIDITY:
-            raw_data = i2c_smbus_read_word_data(bme280_client, BME280_REG_HUM_MSB);
+            raw_data = bme280_read_raw_data(BME280_REG_HUM_MSB, BME280_REG_HUM_LSB, 0);
             if (raw_data < 0) {
                 pr_err("Failed to read raw humidity data\n");
                 return -EFAULT;
             }
             int_humidity = bme280_compensate_humidity(raw_data);
             if (copy_to_user((int __user *)arg, &int_humidity, sizeof(int))) {
-                pr_err("Failed to copy data to user space\n");
+                pr_err("Failed to copy humidity to user space\n");
                 return -EFAULT;
             }
             break;
