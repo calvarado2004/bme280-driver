@@ -178,7 +178,6 @@ static int bme280_compensate_humidity(int adc_H) {
 static long bme280_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
     int value;
     int raw_data;
-    double humidity_value;
     int int_humidity;
 
     switch (cmd) {
