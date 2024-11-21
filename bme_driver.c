@@ -153,35 +153,30 @@ static int bme280_compensate_pressure(int adc_P) {
     return (int)(p / 256);
 }
 
-static s32 bme280_compensate_humidity(s32 adc_H) {
-    int64_t v_x1_u32r;
-    int64_t v_x2_u32r;
-    s32 humidity;
+static s64 bme280_compensate_humidity(s64 adc_H) {
 
-    v_x1_u32r = t_fine - 76800;
+    // Adjust calculations for scaling and sign
+    s64 var1 = t_fine - 76800;
+    s64 var2 = (adc_H * 16384) - (calib_data.dig_H4 * 1048576) - ((calib_data.dig_H5 * var1) / 1024);
+    var2 = (var2 + 16384) / 32768;
+    s64 var3 = (var2 * var2 * calib_data.dig_H1) / 4096;
+    s64 var4 = (var2 * calib_data.dig_H2) / 8192;
+    s64 var5 = (((var4 + 2097152) * calib_data.dig_H3) / 16384) + var3;
 
-    v_x2_u32r = ((int64_t)adc_H << 14) - ((((int64_t)calib_data.dig_H4) << 20) +
-                 (((int64_t)calib_data.dig_H5 * v_x1_u32r) >> 10));
-    v_x2_u32r = (v_x2_u32r + 16384) >> 15;
+    // Clamp the result between 0 and 419430400 (max humidity in fixed-point)
+    var5 = (var5 > 419430400) ? 419430400 : (var5 < 0 ? 0 : var5);
 
-    v_x2_u32r = (v_x2_u32r * (((int64_t)calib_data.dig_H2 * 1048576) >> 16)) >> 14;
-
-    v_x1_u32r = (v_x1_u32r * calib_data.dig_H3) >> 10;
-    v_x1_u32r = ((v_x1_u32r * calib_data.dig_H6) >> 10) + 2097152;
-
-    v_x2_u32r = (v_x2_u32r * v_x1_u32r) >> 13;
-    v_x2_u32r = v_x2_u32r - (((v_x2_u32r >> 15) * (v_x2_u32r >> 15)) >> 7) * calib_data.dig_H1;
-    v_x2_u32r = v_x2_u32r >> 12;
-
-    humidity = v_x2_u32r < 0 ? 0 : (v_x2_u32r > 100000 ? 100000 : v_x2_u32r);
+    // Convert to percentage
+    s64 humidity = (var5 * 100) / 4096;
 
     return humidity;
 }
 
+
 static long bme280_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
     int value;
     int raw_data;
-    int int_humidity;
+    s64 int_humidity;
 
     switch (cmd) {
         case IOCTL_GET_TEMPERATURE:
