@@ -172,7 +172,7 @@ const int64_t HUM_VAR1_OFFSET = 76800;
 const int64_t HUM_CALIB_SCALE = 1048576;
 const int64_t HUM_VAR3_SCALE = 4096;
 const int64_t HUM_VAR4_SCALE = 8192;
-const int64_t HUM_FINAL_SCALE = 16384;
+const int64_t HUM_FINAL_SCALE = 100;
 
 // Function to compensate humidity
 static int64_t bme280_compensate_humidity(int64_t adc_H) {
@@ -188,12 +188,6 @@ static int64_t bme280_compensate_humidity(int64_t adc_H) {
     int64_t var3 = (humidity_uncomp * humidity_uncomp * calib_data.dig_H1) / HUM_VAR3_SCALE;
     int64_t var4 = (humidity_uncomp * calib_data.dig_H2) / HUM_VAR4_SCALE;
     int64_t compensation_result = (((var4 + 2097152) * calib_data.dig_H3) / 16384) + var3;
-
-    // Clamp the result between 0 and 10000 (representing 0% to 100.00%)
-    printk("Compensation result before clamp: %lld\n", compensation_result);
-    compensation_result = (compensation_result < 0) ? 0 : compensation_result;
-    compensation_result = (compensation_result > (100 * HUM_FINAL_SCALE)) ? (100 * HUM_FINAL_SCALE) : compensation_result;
-    printk("Compensation result after clamp: %lld\n", compensation_result);
 
     // Return humidity as an integer percentage with two decimal places
     return compensation_result / HUM_FINAL_SCALE;
