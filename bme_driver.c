@@ -151,28 +151,35 @@ static int bme280_compensate_pressure(int adc_P) {
     return (int)(p / 256);
 }
 
-static int bme280_compensate_humidity(int adc_H) {
-    int v_x1_u32r = t_fine - 76800;
-    v_x1_u32r = (((((adc_H << 14) - ((int)calib_data.dig_H4 << 20) -
-                    ((int)calib_data.dig_H5 * v_x1_u32r)) +
-                   16384) >>
-                  15) *
-                 (((((((v_x1_u32r * (int)calib_data.dig_H6) >> 10) *
-                      (((v_x1_u32r * (int)calib_data.dig_H3) >> 11) + 32768)) >>
-                     10) +
-                    2097152) *
-                   (int)calib_data.dig_H2 +
-                   8192) >>
-                  14));
-    v_x1_u32r -= ((((v_x1_u32r >> 15) * (v_x1_u32r >> 15)) >> 7) * (int)calib_data.dig_H1) >> 4;
-    v_x1_u32r = (v_x1_u32r < 0 ? 0 : v_x1_u32r);
-    v_x1_u32r = (v_x1_u32r > 419430400 ? 419430400 : v_x1_u32r);
-    return (int)(v_x1_u32r >> 12);
+static double bme280_compensate_humidity(int adc_H) {
+    double humidity;
+    double humidity_min = 0.0;
+    double humidity_max = 100.0;
+    double var1, var2, var3, var4, var5, var6;
+
+    var1 = ((double)t_fine) - 76800.0;
+    var2 = (((double)calib_data.dig_H4) * 64.0 + (((double)calib_data.dig_H5) / 16384.0) * var1);
+    var3 = (double)adc_H - var2;
+    var4 = ((double)calib_data.dig_H2) / 65536.0;
+    var5 = (1.0 + (((double)calib_data.dig_H3) / 67108864.0) * var1);
+    var6 = 1.0 + (((double)calib_data.dig_H6) / 67108864.0) * var1 * var5;
+    var6 = var3 * var4 * (var5 * var6);
+    humidity = var6 * (1.0 - ((double)calib_data.dig_H1) * var6 / 524288.0);
+
+    // Clamp humidity to valid range [0.0, 100.0]
+    if (humidity > humidity_max)
+        humidity = humidity_max;
+    else if (humidity < humidity_min)
+        humidity = humidity_min;
+
+    return humidity;
 }
 
 static long bme280_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
     int value;
     int raw_data;
+    double humidity_value;
+    int int_humidity;
 
     switch (cmd) {
         case IOCTL_GET_TEMPERATURE:
@@ -182,8 +189,16 @@ static long bme280_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
             break;
         case IOCTL_GET_HUMIDITY:
             raw_data = i2c_smbus_read_word_data(bme280_client, BME280_REG_HUM_MSB);
-            if (raw_data < 0) return -EFAULT;
-            value = bme280_compensate_humidity(raw_data);
+            if (raw_data < 0) {
+                pr_err("Failed to read raw humidity data\n");
+                return -EFAULT;
+            }
+            humidity_value = bme280_compensate_humidity(raw_data);
+            int_humidity = (int)(humidity_value * 100); // Scale to integer format (e.g., 35.12% -> 3512)
+            if (copy_to_user((int __user *)arg, &int_humidity, sizeof(int))) {
+                pr_err("Failed to copy data to user space\n");
+                return -EFAULT;
+            }
             break;
         case IOCTL_GET_PRESSURE:
             raw_data = bme280_read_raw_data(BME280_REG_PRESS_MSB, BME280_REG_PRESS_LSB, BME280_REG_PRESS_XLSB);
