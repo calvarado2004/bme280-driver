@@ -153,26 +153,33 @@ static int bme280_compensate_pressure(int adc_P) {
 
 static int bme280_compensate_humidity(int adc_H) {
     int v_x1_u32r;
+    int v_x2_u32r;
     int humidity;
 
+    // Step 1: Initial calculation based on t_fine
     v_x1_u32r = t_fine - 76800;
-    v_x1_u32r = (((((adc_H << 14) - ((calib_data.dig_H4 << 20) -
-                    (calib_data.dig_H5 * v_x1_u32r))) + 16384) >> 15) *
-                    ((((((v_x1_u32r * calib_data.dig_H6) >> 10) *
-                        (((v_x1_u32r * calib_data.dig_H3) >> 11) + 32768)) >> 10) +
-                        2097152) * calib_data.dig_H2 + 8192) >> 14);
-    v_x1_u32r = (v_x1_u32r - (((((v_x1_u32r >> 15) * (v_x1_u32r >> 15)) >> 7) * calib_data.dig_H1) >> 4));
-    v_x1_u32r = (v_x1_u32r < 0 ? 0 : v_x1_u32r);
-    v_x1_u32r = (v_x1_u32r > 419430400 ? 419430400 : v_x1_u32r);
-    humidity = v_x1_u32r >> 12;
 
-    // Clamp humidity to valid range [0, 100%]
-    if (humidity > 100000)
-        humidity = 100000;
-    else if (humidity < 0)
-        humidity = 0;
+    // Step 2: Compensate adc_H using dig_H4 and dig_H5
+    v_x2_u32r = (adc_H << 14) - ((calib_data.dig_H4 << 20) +
+                ((calib_data.dig_H5 * v_x1_u32r) >> 10));
 
-    return humidity;
+    // Step 3: Intermediate scaling with dig_H2
+    v_x2_u32r = (v_x2_u32r + 16384) >> 15;
+    v_x2_u32r = (v_x2_u32r * ((calib_data.dig_H2 * 1048576) >> 16)) >> 14;
+
+    // Step 4: Apply dig_H3 and dig_H6 for correction
+    v_x1_u32r = (v_x1_u32r * calib_data.dig_H3) >> 10;
+    v_x1_u32r = ((v_x1_u32r * calib_data.dig_H6) >> 10) + 2097152;
+
+    // Step 5: Final adjustment
+    v_x2_u32r = (v_x2_u32r * v_x1_u32r) >> 13;
+    v_x2_u32r = v_x2_u32r - (((v_x2_u32r >> 15) * (v_x2_u32r >> 15)) >> 7) * calib_data.dig_H1;
+    v_x2_u32r = v_x2_u32r >> 12;
+
+    // Step 6: Clamp humidity to range [0, 100000] (representing 0% to 100.000%)
+    humidity = v_x2_u32r < 0 ? 0 : v_x2_u32r > 100000 ? 100000 : v_x2_u32r;
+
+    return humidity; // Return humidity scaled as integer (e.g., 3512 = 35.12%)
 }
 
 static long bme280_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
