@@ -32,6 +32,8 @@
 // Macro to combine bytes
 #define BME280_CONCAT_BYTES(msb, lsb) (((uint16_t)(msb) << 8) | (uint16_t)(lsb))
 
+static s32 t_fine = 22381;
+
 // Structure to hold calibration data
 struct bme280_calib_data {
     uint16_t dig_T1;
@@ -46,12 +48,12 @@ struct bme280_calib_data {
     int16_t dig_P7;
     int16_t dig_P8;
     int16_t dig_P9;
-    uint8_t dig_H1;
-    int16_t dig_H2;
-    uint8_t dig_H3;
-    int16_t dig_H4;
-    int16_t dig_H5;
-    int8_t dig_H6;
+    s32 dig_H1;
+    s32 dig_H2;
+    s32 dig_H3;
+    s32 dig_H4;
+    s32 dig_H5;
+    s32 dig_H6;
 };
 
 static struct i2c_client *bme280_client;
@@ -151,20 +153,18 @@ static int bme280_compensate_pressure(int adc_P) {
     return (int)(p / 256);
 }
 
-static s32 t_fine = 22381;
-
 static s32 bme280_compensate_humidity(s32 adc_H) {
-    s32 v_x1_u32r;
-    s64 v_x2_u32r;
+    int64_t v_x1_u32r;
+    int64_t v_x2_u32r;
     s32 humidity;
 
     v_x1_u32r = t_fine - 76800;
 
-    v_x2_u32r = ((s64)adc_H << 14) - ((((s64)calib_data.dig_H4) << 20) +
-                 (((s64)calib_data.dig_H5 * v_x1_u32r) >> 10));
+    v_x2_u32r = ((int64_t)adc_H << 14) - ((((int64_t)calib_data.dig_H4) << 20) +
+                 (((int64_t)calib_data.dig_H5 * v_x1_u32r) >> 10));
     v_x2_u32r = (v_x2_u32r + 16384) >> 15;
 
-    v_x2_u32r = (v_x2_u32r * (((s64)calib_data.dig_H2 * 1048576) >> 16)) >> 14;
+    v_x2_u32r = (v_x2_u32r * (((int64_t)calib_data.dig_H2 * 1048576) >> 16)) >> 14;
 
     v_x1_u32r = (v_x1_u32r * calib_data.dig_H3) >> 10;
     v_x1_u32r = ((v_x1_u32r * calib_data.dig_H6) >> 10) + 2097152;
