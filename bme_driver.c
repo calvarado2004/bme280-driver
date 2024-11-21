@@ -48,12 +48,12 @@ struct bme280_calib_data {
     int16_t dig_P7;
     int16_t dig_P8;
     int16_t dig_P9;
-    s32 dig_H1;
-    s32 dig_H2;
-    s32 dig_H3;
-    s32 dig_H4;
-    s32 dig_H5;
-    s32 dig_H6;
+    int64_t dig_H1;
+    int64_t dig_H2;
+    int64_t dig_H3;
+    int64_t dig_H4;
+    int64_t dig_H5;
+    int64_t dig_H6;
 };
 
 static struct i2c_client *bme280_client;
@@ -168,26 +168,26 @@ static int bme280_compensate_pressure(int adc_P) {
 }
 
 // Constants for calculations
-const s64 HUM_VAR1_OFFSET = 76800;
-const s64 HUM_CALIB_SCALE = 1048576;
-const s64 HUM_VAR3_SCALE = 4096;
-const s64 HUM_VAR4_SCALE = 8192;
-const s64 HUM_FINAL_SCALE = 16384;
+const int64_t HUM_VAR1_OFFSET = 76800;
+const int64_t HUM_CALIB_SCALE = 1048576;
+const int64_t HUM_VAR3_SCALE = 4096;
+const int64_t HUM_VAR4_SCALE = 8192;
+const int64_t HUM_FINAL_SCALE = 16384;
 
 // Function to compensate humidity
-static s64 bme280_compensate_humidity(s64 adc_H) {
-    s64 temp_diff = t_fine - HUM_VAR1_OFFSET;
+static int64_t bme280_compensate_humidity(int64_t adc_H) {
+    int64_t temp_diff = t_fine - HUM_VAR1_OFFSET;
 
     // Adjust humidity based on calibration data
-    s64 humidity_scaled = (adc_H * 16384)
+    int64_t humidity_scaled = (adc_H * 16384)
                         - (calib_data.dig_H4 * HUM_CALIB_SCALE)
                         - ((calib_data.dig_H5 * temp_diff) / 1024);
-    s64 humidity_uncomp = (humidity_scaled + 16384) / 32768;
+    int64_t humidity_uncomp = (humidity_scaled + 16384) / 32768;
 
     // Apply further compensations
-    s64 var3 = (humidity_uncomp * humidity_uncomp * calib_data.dig_H1) / HUM_VAR3_SCALE;
-    s64 var4 = (humidity_uncomp * calib_data.dig_H2) / HUM_VAR4_SCALE;
-    s64 compensation_result = (((var4 + 2097152) * calib_data.dig_H3) / 16384) + var3;
+    int64_t var3 = (humidity_uncomp * humidity_uncomp * calib_data.dig_H1) / HUM_VAR3_SCALE;
+    int64_t var4 = (humidity_uncomp * calib_data.dig_H2) / HUM_VAR4_SCALE;
+    int64_t compensation_result = (((var4 + 2097152) * calib_data.dig_H3) / 16384) + var3;
 
     // Clamp the result between 0 and 10000 (representing 0% to 100.00%)
     printk("Compensation result before clamp: %lld\n", compensation_result);
