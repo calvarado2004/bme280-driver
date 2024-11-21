@@ -178,7 +178,7 @@ static struct file_operations fops = {
     .unlocked_ioctl = bme280_ioctl,
 };
 
-static int bme280_probe(struct i2c_client *client, const struct i2c_device_id *id) {
+static int bme280_probe(struct i2c_client *client) {
     bme280_client = client;
     if (bme280_read_calibration_data() < 0) {
         pr_err("Failed to read calibration data\n");
@@ -206,13 +206,12 @@ static int bme280_probe(struct i2c_client *client, const struct i2c_device_id *i
     return 0;
 }
 
-static int bme280_remove(struct i2c_client *client) {
+static void bme280_remove(struct i2c_client *client) {
     device_destroy(bme280_class, dev_num);
     class_destroy(bme280_class);
     cdev_del(&bme280_cdev);
     unregister_chrdev_region(dev_num, 1);
     pr_info("BME280 driver removed\n");
-    return 0;
 }
 
 static const struct i2c_device_id bme280_id[] = {
