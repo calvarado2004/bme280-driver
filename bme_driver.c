@@ -58,6 +58,13 @@ struct bme280_calib_data {
 
 static struct bme280_calib_data calib_data;
 
+// Structure to hold uncompensated raw data
+struct bme280_uncomp_data {
+    int32_t temperature;
+    int32_t pressure;
+    int32_t humidity;
+};
+
 // Function to read calibration data
 static int bme280_read_calibration_data(void) {
     uint8_t calib[26], calib_hum[7];
@@ -117,6 +124,21 @@ static int bme280_read_raw_data(int reg_msb, int reg_lsb, int reg_xlsb) {
         return -1;
 
     return (msb << 12) | (lsb << 4) | (xlsb >> 4);
+}
+
+// Function to read raw humidity data
+static int bme280_read_raw_humidity(int reg_msb, int reg_lsb) {
+     int msb = i2c_smbus_read_byte_data(bme280_client, reg_msb);
+     int lsb = i2c_smbus_read_byte_data(bme280_client, reg_lsb);
+
+    if (msb < 0 || lsb < 0)
+        return -1;
+
+    int humidity = (msb << 8) | lsb;
+
+    printk("Humidity, raw value: %d\n", humidity);
+
+    return humidity;
 }
 
 // Temperature compensation
@@ -196,11 +218,10 @@ static long bme280_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
         value = bme280_compensate_temperature(raw_data);
         break;
     case IOCTL_GET_HUMIDITY:
-        raw_data = bme280_read_raw_data(BME280_REG_HUM_MSB, BME280_REG_HUM_LSB, 0);
+        raw_data = bme280_read_raw_humidity(BME280_REG_HUM_MSB, BME280_REG_HUM_LSB);
         if (raw_data < 0)
             return -EFAULT;
         value = bme280_compensate_humidity(raw_data);
-        printk("Humidity, raw value: %d\n", value);
         break;
     case IOCTL_GET_PRESSURE:
         raw_data = bme280_read_raw_data(BME280_REG_PRESS_MSB, BME280_REG_PRESS_LSB, BME280_REG_PRESS_XLSB);
