@@ -58,12 +58,6 @@ struct bme280_calib_data {
 
 static struct bme280_calib_data calib_data;
 
-// Structure to hold uncompensated raw data
-struct bme280_uncomp_data {
-    int32_t temperature;
-    int32_t pressure;
-    int32_t humidity;
-};
 
 // Function to read calibration data
 static int bme280_read_calibration_data(void) {
@@ -136,7 +130,7 @@ static int bme280_read_raw_humidity(int reg_msb, int reg_lsb) {
 
     int humidity = (msb << 8) | lsb;
 
-    printk("Humidity, raw value: %d\n", humidity);
+    //printk("Humidity, raw value: %d\n", humidity);
 
     return humidity;
 }
