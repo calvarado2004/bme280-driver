@@ -156,10 +156,11 @@ static int bme280_compensate_pressure(int adc_P) {
 
 // Humidity compensation
 static uint32_t bme280_compensate_humidity(int32_t adc_H) {
-    int32_t v_x1_u32r;
 
-    v_x1_u32r = t_fine - 76800;
-    v_x1_u32r = (((((adc_H << 14) - (((int32_t)calib_data.dig_H4) << 20) -
+    int32_t v_x1_u32r = t_fine - ((int32_t)76800);
+
+    v_x1_u32r = (((((adc_H << 14) -
+                    (((int32_t)calib_data.dig_H4) << 20) -
                     (((int32_t)calib_data.dig_H5) * v_x1_u32r)) +
                    ((int32_t)16384)) >>
                   15) *
@@ -169,14 +170,17 @@ static uint32_t bme280_compensate_humidity(int32_t adc_H) {
                      10) +
                     ((int32_t)2097152)) *
                        ((int32_t)calib_data.dig_H2) +
-                   8192) >>
+                   ((int32_t)8192)) >>
                   14));
-    v_x1_u32r =
-        (v_x1_u32r - (((((v_x1_u32r >> 15) * (v_x1_u32r >> 15)) >> 7) *
-                       ((int32_t)calib_data.dig_H1)) >>
-                      4));
+
+    v_x1_u32r = v_x1_u32r -
+                (((((v_x1_u32r >> 15) * (v_x1_u32r >> 15)) >> 7) *
+                  ((int32_t)calib_data.dig_H1)) >>
+                 4);
+
     v_x1_u32r = (v_x1_u32r < 0 ? 0 : v_x1_u32r);
     v_x1_u32r = (v_x1_u32r > 419430400 ? 419430400 : v_x1_u32r);
+
     return (uint32_t)(v_x1_u32r >> 12);
 }
 
@@ -196,6 +200,7 @@ static long bme280_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
         if (raw_data < 0)
             return -EFAULT;
         value = bme280_compensate_humidity(raw_data);
+        printk("Humidity, raw value: %d\n", value);
         break;
     case IOCTL_GET_PRESSURE:
         raw_data = bme280_read_raw_data(BME280_REG_PRESS_MSB, BME280_REG_PRESS_LSB, BME280_REG_PRESS_XLSB);
